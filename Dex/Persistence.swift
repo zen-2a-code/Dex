@@ -8,8 +8,12 @@
 import CoreData
 
 struct PersistenceController {
+    // The thing that controlls are database (property of persistenceController TYPE)
+    //
     static let shared = PersistenceController()
 
+    
+    // The thing that controls our sample preview DataBase
     @MainActor
     static let preview: PersistenceController = {
         let result = PersistenceController(inMemory: true)
@@ -29,8 +33,10 @@ struct PersistenceController {
         return result
     }()
 
+    // The thing that holds the stuff (the database)
     let container: NSPersistentContainer
 
+    // Just a regular init function - runs automatically when new controller is innitiated
     init(inMemory: Bool = false) {
         container = NSPersistentContainer(name: "Dex")
         if inMemory {
