@@ -8,79 +8,58 @@
 import SwiftUI
 import CoreData
 
+/*
+ SwiftUI Environment + FetchRequest (junior-friendly mental model):
+ - Environment: a shared bucket of values (like settings or services) that flows down the view tree.
+   You "inject" a value at the top (e.g., the Core Data context) and "read" it in child views with @Environment.
+ - managedObjectContext: the Core Data context we use to fetch/insert/delete and save.
+   It's usually injected from the App entry point or from previews.
+ - @FetchRequest: asks Core Data for objects and keeps the list updated automatically when data changes.
+   It uses the context from the environment under the hood.
+*/
+
 struct ContentView: View {
+    // Read the Core Data context from the SwiftUI environment.
+    // This is provided by .environment(\.managedObjectContext, someContext) higher up.
     @Environment(\.managedObjectContext) private var viewContext
 
+    // Live query to Core Data. When objects change (insert/delete/update) and you save,
+    // this results list updates and the UI refreshes.
     @FetchRequest(
-        sortDescriptors: [NSSortDescriptor(keyPath: \Item.timestamp, ascending: true)],
+        sortDescriptors: [NSSortDescriptor(keyPath: \Pokemon.id, ascending: true)], // sort by id ascending
         animation: .default)
-    private var items: FetchedResults<Item>
+    private var pokedex: FetchedResults<Pokemon> // Acts like an array of Pokemon from Core Data
 
     var body: some View {
-        NavigationView {
-            List {
-                ForEach(items) { item in
+        NavigationView { // Provides a navigation bar and push-style navigation
+            List { // Table-like list of rows
+                // Iterate over the fetched results. Each element is a managed object (Pokemon).
+                ForEach(pokedex) { pokemon in
+                    // Tapping a row navigates to a detail view (here: just shows the name).
                     NavigationLink {
-                        Text("Item at \(item.timestamp!, formatter: itemFormatter)")
+                        Text(pokemon.name ?? "no name") // name might be optional in the model, so we coalesce to a fallback
                     } label: {
-                        Text(item.timestamp!, formatter: itemFormatter)
+                        Text(pokemon.name ?? "no name")
                     }
                 }
-                .onDelete(perform: deleteItems)
             }
-            .toolbar {
+            .toolbar { // Add buttons to the navigation bar
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    EditButton()
+                    EditButton() // Toggles list edit mode (useful when you add delete/reorder handlers)
                 }
                 ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
+                    // Placeholder add button. Typically you'd insert a new Pokemon into viewContext and save().
+                    Button("Add Item", systemImage: "plus") {
+                        // Example (not implemented here): create a Pokemon(context: viewContext), set properties, try? viewContext.save()
                     }
                 }
-            }
-            Text("Select an item")
-        }
-    }
-
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(context: viewContext)
-            newItem.timestamp = Date()
-
-            do {
-                try viewContext.save()
-            } catch {
-                // Replace this implementation with code to handle the error appropriately.
-                // fatalError() causes the application to generate a crash log and terminate. You should not use this function in a shipping application, although it may be useful during development.
-                let nsError = error as NSError
-                fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
-            }
-        }
-    }
-
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            offsets.map { items[$0] }.forEach(viewContext.delete)
-
-            do {
-                try viewContext.save()
-            } catch {
-                // Replace this implementation with code to handle the error appropriately.
-                // fatalError() causes the application to generate a crash log and terminate. You should not use this function in a shipping application, although it may be useful during development.
-                let nsError = error as NSError
-                fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
             }
         }
     }
 }
 
-private let itemFormatter: DateFormatter = {
-    let formatter = DateFormatter()
-    formatter.dateStyle = .short
-    formatter.timeStyle = .medium
-    return formatter
-}()
-
+// Preview: builds the view with a temporary, in-memory Core Data stack and injects its context.
+// That way the view can fetch data during previews without touching real app data.
 #Preview {
     ContentView().environment(\.managedObjectContext, PersistenceController.preview.container.viewContext)
 }

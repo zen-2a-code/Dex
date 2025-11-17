@@ -86,10 +86,11 @@ struct PersistenceController {
         // Load (or create) the actual persistent stores (e.g., SQLite file).
         container.loadPersistentStores { storeDescription, error in
             if let error = error as NSError? {
-                // Crash early in development if the store can't be loaded.
-                fatalError("Unresolved error \(error), \(error.userInfo)")
+               print(error)
             }
         }
+        
+        container.viewContext.mergePolicy = NSMergePolicy.mergeByPropertyStoreTrump
 
         // If you save changes on a background context, merge those into viewContext automatically.
         container.viewContext.automaticallyMergesChangesFromParent = true
