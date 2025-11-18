@@ -19,6 +19,7 @@ import Foundation
 
 struct FetchedPokemon: Decodable {
     // Properties we want to end up with after decoding (names are our choice, not necessarily the API's).
+    // Int16 is enough for IDs/stats and pairs well with Core Data integer attributes.
     let id: Int16
     let name: String
     // We will extract just the names from the nested types array (e.g., ["grass", "poison"])
@@ -29,9 +30,10 @@ struct FetchedPokemon: Decodable {
     let defense: Int16
     let specialAttack: Int16
     let specialDefense: Int16
-    // Mapped from sprites.frontDefault
+    let speed: Int16
+    // We choose friendly property names in Swift
     let sprite: URL
-    // Mapped from sprites.frontShiny
+    // ...and map them to API keys using CodingKeys raw values (see SpriteKeys)
     let shiny: URL
     
     // Why nested enums?
@@ -42,7 +44,7 @@ struct FetchedPokemon: Decodable {
     // - We descend by creating child containers:
     //     * `nestedContainer(keyedBy:forKey:)` for a nested dictionary/object
     //     * `nestedUnkeyedContainer(forKey:)` for a nested array
-    // - Example for the PokeAPI `types` field (based on the screenshot):
+    // - Example for the PokeAPI `types` field
     //     root["types"] -> array -> element["type"] -> object -> object["name"] -> string
     //   To decode that, you would:
     //     1) make an unkeyed container for `types` (the array)
@@ -76,14 +78,20 @@ struct FetchedPokemon: Decodable {
             case baseStat
         }
         
-        // String rawValue lets us map our case names to different JSON key names (e.g., we want `sprite` and `shiny` in code, but the API uses `frontDefault` and `frontShiny`).
-        enum SpriteKeys: String,CodingKey {
+        // Choosing property names different from the API:
+        // - Our Swift property can be named however we like (e.g., `sprite`).
+        // - We then map that property to the API key by using a CodingKey with a rawValue
+        //   (or by writing custom decode logic).
+        // - Example below: `sprite` (our nice name) maps to API key `frontDefault`.
+        enum SpriteKeys: String, CodingKey {
             // Our case names (sprite/shiny) are nicer; raw values point to the actual API keys
             case sprite = "frontDefault"
             case shiny = "frontShiny"
+            // These raw values must match the keys inside the 'sprites' JSON object.
         }
     }
     
+    // Custom init to walk through nested JSON containers.
     // Decoding flow (junior-friendly):
     // 1) `decoder.container(keyedBy: CodingKeys.self)` gives you the TOP-LEVEL JSON dictionary.
     //    Think of it like: let root = jsonObject
@@ -99,39 +107,64 @@ struct FetchedPokemon: Decodable {
     //    but `CodingKeys` doesn't currently define those cases. That's why the compiler says
     //    `Type 'FetchedPokemon.CodingKeys' has no member 'hp'`, etc. (We're not fixing it here—just explaining.)
     init(from decoder: any Decoder) throws {
+        // Top-level JSON object (a dictionary) we read everything from.
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        // `container` is the root JSON dictionary.
-        // Example path for types in the PokeAPI:
-        //   container[.types] -> (array)
-        //   array element -> keyed container (TypeDictionaryKeys) -> key `.type`
-        //   inside `.type` -> keyed container (TypeKeys) -> key `.name` (e.g., "grass")
-        // Note: To actually walk that path you would use nested containers, e.g.:
-        //   var typesArray = try container.nestedUnkeyedContainer(forKey: .types)
-        //   while !typesArray.isAtEnd {
-        //       let typeDict = try typesArray.nestedContainer(keyedBy: CodingKeys.TypeDictionaryKeys.self)
-        //       let inner = try typeDict.nestedContainer(keyedBy: CodingKeys.TypeDictionaryKeys.TypeKeys.self, forKey: .type)
-        //       let name = try inner.decode(String.self, forKey: .name)
-        //       // collect `name`
-        //   }
-        // (We're not changing functionality—just showing the idea.)
         
-        // Read simple top-level values
         self.id = try container.decode(Int16.self, forKey: .id)
+        // Read a simple top-level number.
+        
         self.name = try container.decode(String.self, forKey: .name)
+        // Read a simple top-level string.
         
-        // NOTE: Placeholder decode; actual data lives deeper (types -> [element] -> type -> name)
-        self.types = try container.decode([String].self, forKey: .types)
+        // Collect type names from the nested 'types' array.
+        var decodedTypes: [String] = []
+        // Step into the 'types' array (unkeyed container).
+        var typesContainer = try container.nestedUnkeyedContainer(forKey: .types)
         
-        // NOTE: Placeholder decodes; real values come from stats array (base_stat per entry)
-        self.hp = try container.decode(Int16.self, forKey: .hp)
-        self.attack = try container.decode(Int16.self, forKey: .attack)
-        self.defense = try container.decode(Int16.self, forKey: .defense)
-        self.specialAttack = try container.decode(Int16.self, forKey: .specialAttack)
-        self.specialDefense = try container.decode(Int16.self, forKey: .specialDefense)
+        // Loop until we've read all type entries.
+        while !typesContainer.isAtEnd {
+            // Each item in 'types' is a dictionary -> use a keyed container (TypeDictionaryKeys) to access its keys (like 'type').
+            let typesDictionaryContainer = try typesContainer.nestedContainer(keyedBy: CodingKeys.TypeDictionaryKeys.self)
+            
+            // Inside that dict, the value for key 'type' is another dict -> step in again (TypeKeys) so we can read 'name'.
+            let exactTypeContainer = try typesDictionaryContainer.nestedContainer(keyedBy: CodingKeys.TypeDictionaryKeys.TypeKeys.self, forKey: .type)
+            
+            // Inside each item: go to ['type']['name'] to get the string.
+            let type = try exactTypeContainer.decode(String.self, forKey: .name)
+            // Add it to our temporary list.
+            decodedTypes.append(type)
+        }
+        // Done collecting: set the property.
+        self.types = decodedTypes
         
-        // NOTE: Placeholder decodes; real values come from sprites object (frontDefault/frontShiny)
-        self.sprite = try container.decode(URL.self, forKey: .sprite)
-        self.shiny = try container.decode(URL.self, forKey: .shiny)
+        // Collect base_stat numbers in order.
+        var decodedStats: [Int16] = []
+        // Step into the 'stats' array.
+        var statsContainer = try container.nestedUnkeyedContainer(forKey: .stats)
+        
+        // Read each stat item.
+        while !statsContainer.isAtEnd {
+            let statsDictionaryContainer = try statsContainer.nestedContainer(keyedBy: CodingKeys.StatDictionaryKeys.self)
+            
+            // We only need the base_stat number.
+            let stat = try statsDictionaryContainer.decode(Int16.self, forKey: .baseStat)
+            // Keep them in the same order as the API.
+            decodedStats.append(stat)
+        }
+        // API guarantees the order: hp, attack, defense, special-attack, special-defense, speed.
+        self.hp = decodedStats[0]
+        self.attack = decodedStats[1]
+        self.defense = decodedStats[2]
+        self.specialAttack = decodedStats[3]
+        self.specialDefense = decodedStats[4]
+        self.speed = decodedStats[5]
+        
+        // Step into the 'sprites' object.
+        let spriteContainer = try container.nestedContainer(keyedBy: CodingKeys.SpriteKeys.self, forKey: .sprites)
+        
+        // Use SpriteKeys to pick the right image URLs.
+        self.sprite = try spriteContainer.decode(URL.self, forKey: .sprite)
+        self.shiny = try spriteContainer.decode(URL.self, forKey: .shiny)
     }
 }
 
