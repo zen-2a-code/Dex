@@ -10,6 +10,8 @@
 // It demonstrates: reading Core Data with @FetchRequest, showing a list, navigating with NavigationStack,
 // and saving data fetched from the network.
 
+// See 'Junior notes' at the bottom for deeper explanations.
+
 import SwiftUI
 import CoreData
 
@@ -27,22 +29,43 @@ struct ContentView: View {
     // Core Data context (injected from the app). Think of it like a scratchpad for reads/writes, then call save().
     @Environment(\.managedObjectContext) private var viewContext
     
+    @State private var searchText = ""
+    
+    init() {
+        // no-op init so we can configure the fetch request predicate later via .onChange
+    }
+    
     // Live query to Core Data. When data changes and you save, the list updates.
     // Sorted by Pokémon id ascending so rows appear in Pokédex order.
-    @FetchRequest(
-        sortDescriptors: [NSSortDescriptor(keyPath: \Pokemon.id, ascending: true)], // sort by id ascending
-        animation: .default)
-    private var pokedex: FetchedResults<Pokemon> // Acts like an array of Pokemon from Core Data
+    // we can also write just \.id
+    // this can either be:     private var pokedex: FetchedResults<Pokemon> // Acts like an array of Pokemon from Core Data if we use     @FetchRequest( or i
+    @FetchRequest<Pokemon>(
+        sortDescriptors: [NSSortDescriptor(keyPath: \Pokemon.id, ascending: true)],
+        predicate: nil,
+        animation: .default
+    ) private var pokedex // Acts like an array of Pokemon from Core Data
     // FetchedResults behaves like an array you can iterate in a List/ForEach.
     
     // Small helper that downloads Pokémon from the network API.
     let fetcher = FetchService()
     
+    private var dynamicPredicate: NSPredicate {
+        var predicates: [NSPredicate] = []
+        
+        // search predicate
+        if !searchText.isEmpty {
+            predicates.append(NSPredicate(format: "name contains[c] %@",  searchText))
+        }
+        // filter by favorite predicate
+        
+        // combine and return
+        return NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
+    }
     var body: some View {
         // NavigationStack manages a stack of screens (push/pop). Required for NavigationLink + navigationDestination.
         NavigationStack {
             // List = table of rows. Each row will be a Pokémon from Core Data.
-            List { // Table-like list of rows
+            List {
                 // Loop through the fetched Pokemon and build a row for each.
                 ForEach(pokedex) { pokemon in
                     // NavigationLink with a value:
@@ -93,6 +116,14 @@ struct ContentView: View {
             // - Each NavigationLink sent a `Pokemon` value (the tapped row's object).
             // - This modifier registers a builder for values of type Pokemon.
             // - SwiftUI matches the tapped value's type (Pokemon) and calls this closure with THAT instance.
+            .searchable(text: $searchText, placement: SearchFieldPlacement.navigationBarDrawer, prompt: "Find a Pokemon")
+            .onChange(of: searchText) { _, _ in
+                pokedex.nsPredicate = dynamicPredicate
+            }
+            .autocorrectionDisabled(true)
+            .onChange(of: searchText) {
+                pokedex.nsPredicate = dynamicPredicate
+            }
             .navigationDestination(for: Pokemon.self, destination: { pokemon in
                 Text(pokemon.name ?? "no name")
             })
@@ -164,3 +195,65 @@ struct ContentView: View {
     ContentView().environment(\.managedObjectContext, PersistenceController.preview.container.viewContext)
 }
 
+/*
+ Junior notes (deep dive, junior-friendly)
+
+ 1) SwiftUI environment + Core Data context
+ - The view reads a managedObjectContext from the environment.
+ - Think of it as a scratchpad for reads/writes; call save() to persist changes to disk.
+ - The default viewContext uses the main queue; use it on the main actor.
+ - Long operations should keep the UI responsive; consider batching saves.
+
+ 2) @FetchRequest mental model
+ - It's a live query. When the context changes and you save, the list updates automatically.
+ - You can change its filter at runtime by setting pokedex.nsPredicate.
+ - sortDescriptors keep a stable order (here by id ascending = Pokédex order).
+ - animation: .default lets SwiftUI animate insertions/removals.
+ - FetchedResults behaves like an array of managed objects.
+
+ 3) Predicates and search
+ - dynamicPredicate builds an AND of filters. Empty search => no filters (show all).
+ - NSPredicate(format: "name contains[c] %@", searchText) is case-insensitive.
+ - Updating nsPredicate triggers Core Data to refetch efficiently.
+ - For large datasets, consider debouncing the search input to avoid refetching on every keystroke.
+
+ 4) Navigation (value-based)
+ - NavigationLink(value:) pushes a value onto NavigationStack.
+ - navigationDestination(for: Pokemon.self) tells how to build the detail for that value type.
+ - This is type-safe and testable. The tapped object flows into the destination closure.
+
+ 5) Images and type chips
+ - AsyncImage downloads and draws the sprite; ProgressView shows while loading.
+ - .scaledToFit inside a fixed frame keeps aspect ratio.
+ - Type chips use Color assets named after the type (e.g., "Fire"). Ensure these assets exist.
+
+ 6) Toolbar actions
+ - Add: downloads Pokémon and saves them to Core Data.
+ - EditButton toggles list edit mode.
+
+ 7) Networking + saving (current approach)
+ - Simple loop fetches ids 1...151 sequentially.
+ - After mapping fields into a new Pokemon object, save() persists it.
+ - Easy to read, but slow and can duplicate data.
+   Tips for production:
+   - Add a unique constraint on id to avoid duplicates (Core Data model setting).
+   - Batch work: insert many objects, then call save() once.
+   - Consider a background context for heavy inserts to avoid blocking the main thread.
+   - Show progress and handle errors in the UI.
+
+ 8) Safety notes
+ - name and types are force-unwrapped in the UI. Safer: guard or provide defaults.
+ - Color(type) assumes an asset exists. Provide a fallback if missing.
+
+ 9) Performance tips for Core Data
+ - Add indexes for 'id' and 'name' if you filter/sort by them.
+ - Use fetchBatchSize for large lists.
+ - Keep row views light; avoid heavy work in List rows.
+
+ 10) Concurrency gotcha
+ - viewContext is main-queue. Saving from a Task should run on the main actor.
+ - If you move saving off the main thread, use a background context instead.
+
+ 11) Previews
+ - The preview injects an in-memory Core Data stack, so the UI runs without touching disk data.
+*/
