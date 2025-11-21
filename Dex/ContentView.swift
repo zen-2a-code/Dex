@@ -50,11 +50,17 @@ struct ContentView: View {
     // Core Data returns faults: objects are materialized as needed. Without fetchBatchSize, it may fetch IDs for all matches, but properties load on access.
     // FetchedResults behaves like an array you can iterate in a List/ForEach.
     
+    // Helper fetch with no sort: lets us quickly check if the DB is empty and count all items.
+    // This avoids "missing rows" side effects from filters/sorts when deciding what empty state to show.
+    // Note: We never show this list; it's only for empty state and count checks.
+    @FetchRequest<Pokemon>(sortDescriptors: [],animation: .default) private var allPokedexInDB
+    
     // Small helper that downloads Pokémon from the network API.
     let fetcher = FetchService() // Tiny helper that knows how to call the Pokémon API.
     
     // Builds an AND predicate based on current UI state (search text + favorites).
     private var dynamicPredicate: NSPredicate {
+        // Build filters at runtime based on UI state (search text + favorites). Empty = show all.
         var predicates: [NSPredicate] = []
         
         // search predicate
@@ -73,14 +79,15 @@ struct ContentView: View {
     }
     var body: some View {
         
-        if pokedex.isEmpty {
+        if allPokedexInDB.isEmpty {
+            // Empty state UI shown only when the database has zero Pokémon.
             // ContentUnavailableView: system-provided empty state (title, description, actions) for when there is no data.
             ContentUnavailableView {
                 Label("No Pokemon", image: .nopokemon)
             } description: {
                 Text("There aren't any Pokemon yet.\nFetch some Pokemon to get started! ")
             } actions: {
-                Button("Fetch pokemon", systemImage: "antena.radiowaves.left.and.right") {
+                Button("Fetch pokemon", systemImage: "antenna.radiowaves.left.and.right") {
                     getPokemon(from: 1)
                 }
                 .buttonStyle(.borderedProminent)
@@ -94,16 +101,9 @@ struct ContentView: View {
                 // List = table of rows. Each row will be a Pokémon from Core Data.
                 List { // Efficiently renders rows and handles diffing/animations for us.
                     // Loop through the fetched Pokemon and build a row for each.
-                    
                     Section {
                         ForEach(pokedex) { pokemon in
-                            // NavigationLink with a value:
-                            // - We pass the actual Core Data object `pokemon` as the link's value.
-                            // - Later, `.navigationDestination(for: Pokemon.self)` declares how to build a screen
-                            //   for ANY value of type Pokemon. When you tap this row, SwiftUI pushes the
-                            //   destination for that exact `pokemon` instance.
-                            // Best practice: Use value-based navigation with NavigationStack + navigationDestination
-                            // for type-safe, testable navigation. It scales better than inline destination closures.
+                            // Value-based navigation: we pass the actual managed object; destination is declared below.
                             NavigationLink (value: pokemon) {
                                 // Using the trailing-closure label style keeps the row layout close to the data it represents.
                                 // AsyncImage starts loading once this row appears on screen (lazy per-row image fetch).
@@ -114,6 +114,7 @@ struct ContentView: View {
                                 } placeholder: {
                                     ProgressView()
                                 }
+                                // Keep thumbnails small for smooth scrolling.
                                 .frame(width: 100, height: 100)
                                 // Tip: Keep images small in lists to avoid jank; large images can hurt scrolling.
                                 
@@ -129,9 +130,7 @@ struct ContentView: View {
                                         }
                                     }
                                     
-                                    
-                                    // Types are shown as chips. We use the type string to look up a Color with the same name.
-                                    // Be sure you have Color assets named after types (e.g., "Fire", "Water").
+                                    // Type chips. Requires matching Color assets (e.g., "Fire").
                                     HStack {
                                         ForEach(pokemon.types!, id: \.self) { type in // Force unwrap for demo; consider optional handling.
                                             Text (type.capitalized)
@@ -146,18 +145,31 @@ struct ContentView: View {
                                     }
                                 }
                             }
+                            // Quick toggle for favorites, then save to persist.
+                            .swipeActions (edge: .leading){
+                                Button(pokemon.favorite ? "Remove from Favorites" : "Add to Favorites", systemImage: "star") {
+                                    pokemon.favorite.toggle()
+                                    
+                                    do {
+                                        try viewContext.save()
+                                    } catch {
+                                        print(error)
+                                    }
+                                }
+                                .tint(pokemon.favorite ? .gray : .yellow)
+                            }
                         }
                     } footer: {
-                        if pokedex.count < 151 {
+                        if allPokedexInDB.count < 151 {
                             // Secondary empty-state hint: shows when fewer than 151 Pokémon are present.
                             ContentUnavailableView {
                                 Label("Missing Pokemon", image: .nopokemon)
                             } description: {
                                 Text("The fetch was imterrupted!\n Fetch the rest of the pokemon.")
                             } actions: {
-                                Button("Fetch pokemon", systemImage: "antena.radiowaves.left.and.right") {
-                                    // the lecture saidt that it will work but i don't see. He things that it will work because it gets the current count of fetchPokemons, but the fetcher may have missed some and the count is to be still higher then the missed pockepons [ChatGPT correct me if wrong. don't fix just add comment here]
-                                    // Answer: You're right to be skeptical. Using pokedex.count + 1 assumes there are no gaps; if some IDs were skipped, this won't fetch the missing ones. Also, note getPokemon(from:) currently ignores its 'from' parameter (the loop always starts at 1), so this button doesn't actually resume — you'd need to start the loop at 'id' and/or compute missing IDs. (No code changes here, just a note.)
+                                Button("Fetch pokemon", systemImage: "antenna.radiowaves.left.and.right") {
+                                    // Q: Will using pokedex.count + 1 correctly resume fetching?
+                                    // A: Not reliably. It assumes no gaps. If some IDs were skipped, you'll miss them. Also, getPokemon(from:) currently ignores its 'from' parameter (it always starts at 1), so this button doesn't actually resume.
                                     getPokemon(from: pokedex.count + 1)
                                 }
                                 .buttonStyle(.borderedProminent)
@@ -191,13 +203,15 @@ struct ContentView: View {
                     } // Toggles star filter on/off.
                 }
                 .searchable(text: $searchText, placement: SearchFieldPlacement.navigationBarDrawer, prompt: "Find a Pokemon") // Binds the search bar text to our state.
+                // iOS 17+: onChange provides old and new values.
                 .onChange(of: searchText) { _, _ in // New iOS signature (old + new values)
                     pokedex.nsPredicate = dynamicPredicate
                 } // New iOS signature with old+new values.
-                .autocorrectionDisabled(true)
+                // Back-compat signature for earlier iOS versions.
                 .onChange(of: searchText) { // Back-compat signature (single value)
                     pokedex.nsPredicate = dynamicPredicate
                 } // Back-compat signature; both do the same refetch.
+                // Re-apply predicate when the star filter changes.
                 .onChange(of: filterByFavorites) {
                     pokedex.nsPredicate = dynamicPredicate
                 } // Toggling the star refilters immediately.
@@ -210,16 +224,15 @@ struct ContentView: View {
     
     // Asynchronous fetch wrapped in a Task so it won't block the UI.
     private func getPokemon(from id: Int) { // Runs async work without blocking the UI.
-        // NOTE: The 'from id' parameter isn't used below; the loop always starts at 1..<152, so this does not currently resume from a given id.
+        // Heads-up: 'id' isn't used; the loop below always starts at 1, so this does not resume.
         Task { // Starts a new asynchronous context.
-            // NOTE: This naive loop fetches 151 items in sequence and saves each one.
-            // In a real app, consider batching, handling duplicates, progress, and error UI.
+            // Naive sequential fetch of 1...151. Simple, but slow and can duplicate without constraints.
             for i in 1..<152 { // 1...151 inclusive.
                 do {
                     // 1) Download a Pokemon model from the API.
                     let fetchedPokemon = try await fetcher.fetchPokemon(i) // Network call; can throw or suspend.
                     
-                    // Map the network model into a new Core Data Pokemon object.
+                    // Insert a new managed object and copy fields from the network model.
                     let pokemon = Pokemon(context: viewContext) // Insert a new managed object into the main context.
                     // 3) Copy fields from the network model into Core Data.
                     pokemon.id = fetchedPokemon.id
@@ -314,5 +327,6 @@ struct ContentView: View {
 
  11) Previews
  - The preview injects an in-memory Core Data stack, so the UI runs without touching disk data.
-*/
 
+ - Duplicate protection: Add a unique constraint on 'id' in the Core Data model to avoid duplicates.
+*/
