@@ -47,6 +47,7 @@ struct ContentView: View {
         predicate: nil, // Start with no filter; we set one dynamically when search/favorite changes.
         animation: .default
     ) private var pokedex // Acts like an array of Pokemon from Core Data (auto-updates when the context saves).
+    // Core Data returns faults: objects are materialized as needed. Without fetchBatchSize, it may fetch IDs for all matches, but properties load on access.
     // FetchedResults behaves like an array you can iterate in a List/ForEach.
     
     // Small helper that downloads Pokémon from the network API.
@@ -71,102 +72,135 @@ struct ContentView: View {
         return NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
     }
     var body: some View {
-        // NavigationStack manages a stack of screens (push/pop). Required for NavigationLink + navigationDestination.
-        NavigationStack { // Enables type-safe navigation with NavigationLink(value:).
-            // List = table of rows. Each row will be a Pokémon from Core Data.
-            List { // Efficiently renders rows and handles diffing/animations for us.
-                // Loop through the fetched Pokemon and build a row for each.
-                ForEach(pokedex) { pokemon in
-                    // NavigationLink with a value:
-                    // - We pass the actual Core Data object `pokemon` as the link's value.
-                    // - Later, `.navigationDestination(for: Pokemon.self)` declares how to build a screen
-                    //   for ANY value of type Pokemon. When you tap this row, SwiftUI pushes the
-                    //   destination for that exact `pokemon` instance.
-                    // Best practice: Use value-based navigation with NavigationStack + navigationDestination
-                    // for type-safe, testable navigation. It scales better than inline destination closures.
-                    NavigationLink (value: pokemon) {
-                        // Using the trailing-closure label style keeps the row layout close to the data it represents.
-                        // AsyncImage downloads and shows the sprite from the URL.
-                        AsyncImage(url: pokemon.sprite) {image in
-                            image
-                                .resizable()
-                                .scaledToFit()
-                        } placeholder: {
-                            ProgressView()
-                        }
-                        .frame(width: 100, height: 100)
-                        // Tip: Keep images small in lists to avoid jank; large images can hurt scrolling.
-                        
-                        VStack(alignment: .leading) {
-                            // Name shown in Title Case for readability.
-                            HStack {
-                                Text(pokemon.name!.capitalized) // Force unwrap for demo; in production prefer a safe default.
-                                    .fontWeight(.bold)
-                                
-                                if pokemon.favorite {
-                                    Image(systemName: "star.fill")
-                                        .foregroundStyle(.yellow)
-                                }
-                            }
-                            
-                            
-                            // Types are shown as chips. We use the type string to look up a Color with the same name.
-                            // Be sure you have Color assets named after types (e.g., "Fire", "Water").
-                            HStack {
-                                ForEach(pokemon.types!, id: \.self) { type in // Force unwrap for demo; consider optional handling.
-                                    Text (type.capitalized)
-                                        .font(.subheadline)
-                                        .fontWeight(.semibold)
-                                        .foregroundStyle(.black)
-                                        .padding(.vertical, 5)
-                                        .padding(.horizontal, 13)
-                                        .background(Color(type.capitalized)) // Uses a Color asset named like the type (e.g., "Fire"). If missing, provide a fallback color.
-                                        .clipShape(.capsule)
-                                }
-                            }
-                        }
-                    }
+        
+        if pokedex.isEmpty {
+            // ContentUnavailableView: system-provided empty state (title, description, actions) for when there is no data.
+            ContentUnavailableView {
+                Label("No Pokemon", image: .nopokemon)
+            } description: {
+                Text("There aren't any Pokemon yet.\nFetch some Pokemon to get started! ")
+            } actions: {
+                Button("Fetch pokemon", systemImage: "antena.radiowaves.left.and.right") {
+                    getPokemon(from: 1)
                 }
+                .buttonStyle(.borderedProminent)
             }
-            .navigationTitle("Pokedex") // Title for the top of the NavigationStack.
-            // How does navigationDestination know which Pokémon to open?
-            // - Each NavigationLink sent a `Pokemon` value (the tapped row's object).
-            // - This modifier registers a builder for values of type Pokemon.
-            // - SwiftUI matches the tapped value's type (Pokemon) and calls this closure with THAT instance.
-            .searchable(text: $searchText, placement: SearchFieldPlacement.navigationBarDrawer, prompt: "Find a Pokemon") // Binds the search bar text to our state.
-            .onChange(of: searchText) { _, _ in
-                pokedex.nsPredicate = dynamicPredicate
-            } // New iOS signature with old+new values.
-            .autocorrectionDisabled(true)
-            .onChange(of: searchText) {
-                pokedex.nsPredicate = dynamicPredicate
-            } // Back-compat signature; both do the same refetch.
-            .onChange(of: filterByFavorites) {
-                pokedex.nsPredicate = dynamicPredicate
-            } // Toggling the star refilters immediately.
-            .navigationDestination(for: Pokemon.self, destination: { pokemon in // Defines the detail screen for a tapped Pokémon.
-                Text(pokemon.name ?? "no name") // Minimal detail for now; can expand into a full stats view.
-            })
-            // Top-right bar buttons (edit and add).
-            .toolbar { // Add buttons to the navigation bar
-                ToolbarItem (placement: .navigationBarTrailing){
-                    // About Button label styles:
-                    // - Button("Add Item", systemImage: "plus") is concise for simple text+icon.
-                    // - Button { ... } label: { Label("Add Item", systemImage: "plus") } is more flexible for custom layouts.
-                    // For simple toolbars, the concise initializer is fine (used here).
-                    Button("Add Item", systemImage: "plus") { // Downloads the first 151 Pokémon and saves them.
-                        getPokemon()
+
+        } else {
+            // NavigationStack manages a stack of screens (push/pop). Required for NavigationLink + navigationDestination.
+            // Destinations are built lazily: SwiftUI only constructs the destination view when you navigate to it.
+            NavigationStack { // Enables type-safe navigation with NavigationLink(value:).
+                // NOTE: List is lazily rendered: rows are created on demand as they scroll into view; not all rows are built upfront.
+                // List = table of rows. Each row will be a Pokémon from Core Data.
+                List { // Efficiently renders rows and handles diffing/animations for us.
+                    // Loop through the fetched Pokemon and build a row for each.
+                    
+                    Section {
+                        ForEach(pokedex) { pokemon in
+                            // NavigationLink with a value:
+                            // - We pass the actual Core Data object `pokemon` as the link's value.
+                            // - Later, `.navigationDestination(for: Pokemon.self)` declares how to build a screen
+                            //   for ANY value of type Pokemon. When you tap this row, SwiftUI pushes the
+                            //   destination for that exact `pokemon` instance.
+                            // Best practice: Use value-based navigation with NavigationStack + navigationDestination
+                            // for type-safe, testable navigation. It scales better than inline destination closures.
+                            NavigationLink (value: pokemon) {
+                                // Using the trailing-closure label style keeps the row layout close to the data it represents.
+                                // AsyncImage starts loading once this row appears on screen (lazy per-row image fetch).
+                                AsyncImage(url: pokemon.sprite) {image in
+                                    image
+                                        .resizable()
+                                        .scaledToFit()
+                                } placeholder: {
+                                    ProgressView()
+                                }
+                                .frame(width: 100, height: 100)
+                                // Tip: Keep images small in lists to avoid jank; large images can hurt scrolling.
+                                
+                                VStack(alignment: .leading) {
+                                    // Name shown in Title Case for readability.
+                                    HStack {
+                                        Text(pokemon.name!.capitalized) // Force unwrap for demo; in production prefer a safe default.
+                                            .fontWeight(.bold)
+                                        
+                                        if pokemon.favorite {
+                                            Image(systemName: "star.fill")
+                                                .foregroundStyle(.yellow)
+                                        }
+                                    }
+                                    
+                                    
+                                    // Types are shown as chips. We use the type string to look up a Color with the same name.
+                                    // Be sure you have Color assets named after types (e.g., "Fire", "Water").
+                                    HStack {
+                                        ForEach(pokemon.types!, id: \.self) { type in // Force unwrap for demo; consider optional handling.
+                                            Text (type.capitalized)
+                                                .font(.subheadline)
+                                                .fontWeight(.semibold)
+                                                .foregroundStyle(.black)
+                                                .padding(.vertical, 5)
+                                                .padding(.horizontal, 13)
+                                                .background(Color(type.capitalized)) // Uses a Color asset named like the type (e.g., "Fire"). If missing, provide a fallback color.
+                                                .clipShape(.capsule)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } footer: {
+                        if pokedex.count < 151 {
+                            // Secondary empty-state hint: shows when fewer than 151 Pokémon are present.
+                            ContentUnavailableView {
+                                Label("Missing Pokemon", image: .nopokemon)
+                            } description: {
+                                Text("The fetch was imterrupted!\n Fetch the rest of the pokemon.")
+                            } actions: {
+                                Button("Fetch pokemon", systemImage: "antena.radiowaves.left.and.right") {
+                                    // the lecture saidt that it will work but i don't see. He things that it will work because it gets the current count of fetchPokemons, but the fetcher may have missed some and the count is to be still higher then the missed pockepons [ChatGPT correct me if wrong. don't fix just add comment here]
+                                    // Answer: You're right to be skeptical. Using pokedex.count + 1 assumes there are no gaps; if some IDs were skipped, this won't fetch the missing ones. Also, note getPokemon(from:) currently ignores its 'from' parameter (the loop always starts at 1), so this button doesn't actually resume — you'd need to start the loop at 'id' and/or compute missing IDs. (No code changes here, just a note.)
+                                    getPokemon(from: pokedex.count + 1)
+                                }
+                                .buttonStyle(.borderedProminent)
+                            }
+
+                        }
                     }
+                    //                This is the best way but, and if we want to put this app in PROD we should use this way to fetch all pokemons. this is commented out in order to see ContentUnavailableView
+                    //                .task {
+                    //                    getPokemon()
+                    //                }
                 }
-                
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        filterByFavorites.toggle()
-                    } label: {
-                        Label("Filter By Favorites", systemImage: filterByFavorites ? "star.fill" : "star")
-                    }
-                    .tint(.yellow)
-                } // Toggles star filter on/off.
+                .navigationTitle("Pokedex") // Title for the top of the NavigationStack.
+                // How does navigationDestination know which Pokémon to open?
+                // - Each NavigationLink sent a `Pokemon` value (the tapped row's object).
+                // - This modifier registers a builder for values of type Pokemon.
+                // - SwiftUI matches the tapped value's type (Pokemon) and calls this closure with THAT instance.
+                // Navigation destination views are created on-demand when a link is activated (not all at once).
+                .navigationDestination(for: Pokemon.self, destination: { pokemon in // Defines the detail screen for a tapped Pokémon.
+                    Text(pokemon.name ?? "no name") // Minimal detail for now; can expand into a full stats view.
+                })
+                // Top-right bar buttons (edit and add).
+                .toolbar { // Add buttons to the navigation bar
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button {
+                            filterByFavorites.toggle()
+                        } label: {
+                            Label("Filter By Favorites", systemImage: filterByFavorites ? "star.fill" : "star")
+                        }
+                        .tint(.yellow)
+                    } // Toggles star filter on/off.
+                }
+                .searchable(text: $searchText, placement: SearchFieldPlacement.navigationBarDrawer, prompt: "Find a Pokemon") // Binds the search bar text to our state.
+                .onChange(of: searchText) { _, _ in // New iOS signature (old + new values)
+                    pokedex.nsPredicate = dynamicPredicate
+                } // New iOS signature with old+new values.
+                .autocorrectionDisabled(true)
+                .onChange(of: searchText) { // Back-compat signature (single value)
+                    pokedex.nsPredicate = dynamicPredicate
+                } // Back-compat signature; both do the same refetch.
+                .onChange(of: filterByFavorites) {
+                    pokedex.nsPredicate = dynamicPredicate
+                } // Toggling the star refilters immediately.
             }
         }
     }
@@ -175,14 +209,15 @@ struct ContentView: View {
     // Helper that fetches Pokemon from the network and saves them into Core Data.
     
     // Asynchronous fetch wrapped in a Task so it won't block the UI.
-    private func getPokemon() { // Runs async work without blocking the UI.
+    private func getPokemon(from id: Int) { // Runs async work without blocking the UI.
+        // NOTE: The 'from id' parameter isn't used below; the loop always starts at 1..<152, so this does not currently resume from a given id.
         Task { // Starts a new asynchronous context.
             // NOTE: This naive loop fetches 151 items in sequence and saves each one.
             // In a real app, consider batching, handling duplicates, progress, and error UI.
-            for id in 1..<152 { // 1...151 inclusive.
+            for i in 1..<152 { // 1...151 inclusive.
                 do {
                     // 1) Download a Pokemon model from the API.
-                    let fetchedPokemon = try await fetcher.fetchPokemon(id) // Network call; can throw or suspend.
+                    let fetchedPokemon = try await fetcher.fetchPokemon(i) // Network call; can throw or suspend.
                     
                     // Map the network model into a new Core Data Pokemon object.
                     let pokemon = Pokemon(context: viewContext) // Insert a new managed object into the main context.
@@ -209,7 +244,6 @@ struct ContentView: View {
             }
         }
     }
-    
 }
 
 // Preview uses an in-memory Core Data stack so you can see the UI without touching real data.
@@ -281,3 +315,4 @@ struct ContentView: View {
  11) Previews
  - The preview injects an in-memory Core Data stack, so the UI runs without touching disk data.
 */
+
