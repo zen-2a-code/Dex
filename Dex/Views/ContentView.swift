@@ -35,8 +35,10 @@ struct ContentView: View {
     init() {
         // no-op init so we can configure the fetch request predicate later via .onChange
         // Tip: Keeping init() explicit makes it clear we aren't passing parameters into this View.
+        // Having an explicit init also makes it easy to add setup later without changing the view's call site.
     }
     
+    // Live results from Core Data that update the UI automatically when data changes.
     // Generic <Pokemon> tells Swift the entity type this fetch returns.
     // Live query to Core Data. When data changes and you save, the list updates.
     // Sorted by Pokémon id ascending so rows appear in Pokédex order.
@@ -50,14 +52,17 @@ struct ContentView: View {
     // Core Data returns faults: objects are materialized as needed. Without fetchBatchSize, it may fetch IDs for all matches, but properties load on access.
     // FetchedResults behaves like an array you can iterate in a List/ForEach.
     
+    // Helper fetch for counts/empty-state checks; we don't display these results directly.
     // Helper fetch with no sort: lets us quickly check if the DB is empty and count all items.
     // This avoids "missing rows" side effects from filters/sorts when deciding what empty state to show.
     // Note: We never show this list; it's only for empty state and count checks.
     @FetchRequest<Pokemon>(sortDescriptors: [],animation: .default) private var allPokedexInDB
     
+    // Small networking helper that talks to the Pokémon API and returns Decodable models.
     // Small helper that downloads Pokémon from the network API.
     let fetcher = FetchService() // Tiny helper that knows how to call the Pokémon API.
     
+    // Build a Core Data filter (NSPredicate) based on search text and favorites toggle.
     // Builds an AND predicate based on current UI state (search text + favorites).
     private var dynamicPredicate: NSPredicate {
         // Build filters at runtime based on UI state (search text + favorites). Empty = show all.
@@ -94,6 +99,7 @@ struct ContentView: View {
             }
 
         } else {
+            // Navigation container that manages pushing detail screens when rows are tapped.
             // NavigationStack manages a stack of screens (push/pop). Required for NavigationLink + navigationDestination.
             // Destinations are built lazily: SwiftUI only constructs the destination view when you navigate to it.
             NavigationStack { // Enables type-safe navigation with NavigationLink(value:).
@@ -168,8 +174,10 @@ struct ContentView: View {
                                 Text("The fetch was imterrupted!\n Fetch the rest of the pokemon.")
                             } actions: {
                                 Button("Fetch pokemon", systemImage: "antenna.radiowaves.left.and.right") {
-                                    // Q: Will using pokedex.count + 1 correctly resume fetching?
-                                    // A: Not reliably. It assumes no gaps. If some IDs were skipped, you'll miss them. Also, getPokemon(from:) currently ignores its 'from' parameter (it always starts at 1), so this button doesn't actually resume.
+                                    // Junior note: Using pokedex.count + 1 to resume is fragile.
+                                    // - It assumes there are no gaps in IDs.
+                                    // - Our getPokemon(from:) ignores its parameter and always starts at 1.
+                                    // So this button doesn't truly resume; it's just a demo.
                                     getPokemon(from: pokedex.count + 1)
                                 }
                                 .buttonStyle(.borderedProminent)
@@ -189,7 +197,8 @@ struct ContentView: View {
                 // - SwiftUI matches the tapped value's type (Pokemon) and calls this closure with THAT instance.
                 // Navigation destination views are created on-demand when a link is activated (not all at once).
                 .navigationDestination(for: Pokemon.self, destination: { pokemon in // Defines the detail screen for a tapped Pokémon.
-                    Text(pokemon.name ?? "no name") // Minimal detail for now; can expand into a full stats view.
+                    PokemonDetail()
+                        .environmentObject(pokemon)
                 })
                 // Top-right bar buttons (edit and add).
                 .toolbar { // Add buttons to the navigation bar
@@ -202,16 +211,17 @@ struct ContentView: View {
                         .tint(.yellow)
                     } // Toggles star filter on/off.
                 }
+                // System search UI bound to our searchText; changing it refilters the fetch request.
                 .searchable(text: $searchText, placement: SearchFieldPlacement.navigationBarDrawer, prompt: "Find a Pokemon") // Binds the search bar text to our state.
-                // iOS 17+: onChange provides old and new values.
+                // iOS 17 signature includes old and new values; we ignore them and just update the predicate.
                 .onChange(of: searchText) { _, _ in // New iOS signature (old + new values)
                     pokedex.nsPredicate = dynamicPredicate
                 } // New iOS signature with old+new values.
-                // Back-compat signature for earlier iOS versions.
+                // Back-compat signature (single value) for earlier iOS; same effect.
                 .onChange(of: searchText) { // Back-compat signature (single value)
                     pokedex.nsPredicate = dynamicPredicate
                 } // Back-compat signature; both do the same refetch.
-                // Re-apply predicate when the star filter changes.
+                // Refilter when the user toggles the favorites-only filter.
                 .onChange(of: filterByFavorites) {
                     pokedex.nsPredicate = dynamicPredicate
                 } // Toggling the star refilters immediately.
@@ -219,6 +229,7 @@ struct ContentView: View {
         }
     }
     
+    // Note: The 'from' parameter is currently unused; the loop always starts at 1. This is fine for demos but not for resuming.
     // MARK: - Data loading
     // Helper that fetches Pokemon from the network and saves them into Core Data.
     
@@ -330,3 +341,4 @@ struct ContentView: View {
 
  - Duplicate protection: Add a unique constraint on 'id' in the Core Data model to avoid duplicates.
 */
+

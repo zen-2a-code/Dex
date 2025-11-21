@@ -24,10 +24,40 @@ import CoreData
 struct PersistenceController {
     // Singleton you can reuse anywhere: PersistenceController.shared
     static let shared = PersistenceController()
+    
+    // Why a computed property?
+    // - The preview stack is built on demand and may be rebuilt by Xcode previews.
+    // - Each time we access this, we look up (or create elsewhere) the sample Pokemon from the preview context.
+    // - Returning it via a computed property avoids keeping a global, long-lived reference to a managed object.
+    static var previewPokemon: Pokemon {
+        let context = PersistenceController.preview.container.viewContext
+        
+        // Fetch one Pokemon from the in-memory preview store:
+        // - We build a simple fetch request for Pokemon.
+        // - fetchLimit = 1 means "just give me the first match" (we only inserted one in preview).
+        // - In a demo it's fine to assume it exists; in production prefer safe optional handling.
+        // try! will crash if the fetch throws. For previews and learning code this is acceptable,
+        // but in production use do/catch to handle errors gracefully.
+        let fetchRequest: NSFetchRequest<Pokemon> = Pokemon.fetchRequest()
+        fetchRequest.fetchLimit = 1
+        
+        let results = try! context.fetch(fetchRequest)
+        
+        // Force-unwrapping because preview created exactly one Pokemon.
+        // Safer alternative:
+        //   if let first = results.first { return first } else { /* create a placeholder */ }
+        return results.first!
+        
+    }
 
     // A throwaway, in‑memory Core Data stack filled with sample data for SwiftUI previews.
-    // @MainActor: preview code runs on the main thread, which matches viewContext's queue.
-    @MainActor
+    // About @MainActor on preview:
+    // - viewContext is main-queue bound, and SwiftUI previews run UI code on the main thread.
+    // - Marking this factory with @MainActor is often fine, but not strictly required because we only touch viewContext synchronously inside this closure during setup.
+    // - Removing @MainActor here does NOT make the app "faster"; it simply avoids over-constraining the type and lets this static be constructed without thread annotations.
+    // - Rule of thumb:
+    //     * If you access UI-bound state from multiple threads, use @MainActor or hop to the main actor.
+    //     * For one-time, synchronous preview bootstrapping like this, leaving it off is acceptable.
     static let preview: PersistenceController = {
         // Build an in‑memory store (nothing is written to disk).
         let result = PersistenceController(inMemory: true)
@@ -90,9 +120,10 @@ struct PersistenceController {
             }
         }
         
+        // Merge policy: if the same object changed in memory and on disk, prefer the store's values for conflicting properties.
         container.viewContext.mergePolicy = NSMergePolicy.mergeByPropertyStoreTrump
 
-        // If you save changes on a background context, merge those into viewContext automatically.
+        // When background contexts save, automatically merge their changes into viewContext so the UI updates.
         container.viewContext.automaticallyMergesChangesFromParent = true
     }
 }
