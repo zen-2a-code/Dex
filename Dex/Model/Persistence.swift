@@ -79,6 +79,7 @@ struct PersistenceController {
         newPokemon.types = ["grass", "poison"] // Likely a transformable or [String];
         newPokemon.hp = 45
         newPokemon.attack = 49
+        newPokemon.defense = 49
         newPokemon.specialAttack = 65
         newPokemon.specialDefense = 65
         newPokemon.speed = 45

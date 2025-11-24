@@ -19,6 +19,7 @@ struct PokemonDetail: View {
     // - Any child that declares `@EnvironmentObject private var pokemon: Pokemon` can then read THAT SAME instance.
     // - It's great for data you want to reuse across multiple screens without plumbing it through every initializer.
     // In this screen, `pokemon` is the specific Core Data Pokemon the user tapped in the list.
+    // we need the environmentObject here, because we actually change the database data by toggling favorite
     @EnvironmentObject private var pokemon: Pokemon
     
     @State private var showShiny = false
@@ -82,6 +83,12 @@ struct PokemonDetail: View {
                 }
             }
             .padding()
+            
+            Text("Stats")
+                .font(.title)
+                .padding(.bottom, -7)
+                
+            Stats(pokemon: pokemon)
         }
         // Show the Pokémon's name as the title. Using ! for simplicity here; consider a safe default in production.
         .navigationTitle(pokemon.name!.capitalized)
