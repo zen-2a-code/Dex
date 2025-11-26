@@ -5,19 +5,13 @@
 //  Created by Stoyan Hristov on 18.11.25.
 //
 
-// we use this model as (struct) because CoreData is not decodable and we need decodable when we fetch our pokemons from API
-// core data is still there because we need to relunch our app with memory
-
-/*
- Junior-friendly overview:
- - This struct is a temporary, Decodable model used only to parse the API JSON.
- - We decode from a nested JSON structure into our flat properties.
- - `CodingKeys` describe keys at each JSON level; nested enums describe keys inside nested objects/arrays.
-*/
+// Temporary Decodable model used only for parsing API JSON; we later map into Core Data.
 
 import Foundation
 
+// Decodes nested PokeAPI JSON into flat Swift properties (ids, names, types, stats, sprites).
 struct FetchedPokemon: Decodable {
+    // Final properties we want after decoding (names can differ from API keys).
     // Properties we want to end up with after decoding (names are our choice, not necessarily the API's).
     // Int16 is enough for IDs/stats and pairs well with Core Data integer attributes.
     let id: Int16
@@ -36,21 +30,7 @@ struct FetchedPokemon: Decodable {
     // ...and map them to API keys using CodingKeys raw values (see SpriteKeys)
     let shiny: URL
     
-    // Why nested enums?
-    // - Each `CodingKey` enum represents the keys for ONE level of the JSON.
-    // - The top-level `CodingKeys` is used to read keys that live directly on the root JSON object (e.g. "id", "name", "types", "stats", "sprites").
-    // - The nested enums (like `TypeDiction` and `TypeKeys`) are NOT magic; they don't fetch anything by themselves.
-    //   They are just namespaced lists of keys we can use when we explicitly descend into nested containers.
-    // - We descend by creating child containers:
-    //     * `nestedContainer(keyedBy:forKey:)` for a nested dictionary/object
-    //     * `nestedUnkeyedContainer(forKey:)` for a nested array
-    // - Example for the PokeAPI `types` field
-    //     root["types"] -> array -> element["type"] -> object -> object["name"] -> string
-    //   To decode that, you would:
-    //     1) make an unkeyed container for `types` (the array)
-    //     2) for each item, make a keyed container using `TypeDictionaryKeys` (to access the `type` key)
-    //     3) inside that, make another keyed container using `TypeKeys` (to access `name`)
-    // - So: nested enums are just the key lists you use at each step when you go deeper.
+    // Key lists for each JSON level: top-level keys, nested type/stat/sprite keys.
     enum CodingKeys: CodingKey {
         // Direct top-level keys
         case id
@@ -63,18 +43,18 @@ struct FetchedPokemon: Decodable {
         
         // Keys for each element in the `types` array (each element is a dictionary with a `type` field)
         enum TypeDictionaryKeys: CodingKey {
-            // e.g. element["type"] -> { name: "grass" }
+            // In the `types` array, each element has a `type` object.
             case type
             
             // Keys inside the nested `type` dictionary
             enum TypeKeys: CodingKey {
-                // e.g. element["type"]["name"] -> "grass"
+                // Inside the `type` object, we read the `name` string (e.g., "grass").
                 case name
             }
         }
         
         enum StatDictionaryKeys: CodingKey {
-            // We only need the number at key `base_stat` (converted from snake_case)
+            // Each stat item exposes `base_stat` (mapped to `baseStat`).
             case baseStat
         }
         
@@ -84,13 +64,14 @@ struct FetchedPokemon: Decodable {
         //   (or by writing custom decode logic).
         // - Example below: `sprite` (our nice name) maps to API key `frontDefault`.
         enum SpriteKeys: String, CodingKey {
-            // Our case names (sprite/shiny) are nicer; raw values point to the actual API keys
+            // Map our friendly property names to API sprite keys.
             case sprite = "frontDefault"
             case shiny = "frontShiny"
             // These raw values must match the keys inside the 'sprites' JSON object.
         }
     }
     
+    // Custom decode walking through nested containers (arrays/objects) to collect values.
     // Custom init to walk through nested JSON containers.
     // Decoding flow (junior-friendly):
     // 1) `decoder.container(keyedBy: CodingKeys.self)` gives you the TOP-LEVEL JSON dictionary.
@@ -116,11 +97,13 @@ struct FetchedPokemon: Decodable {
         self.name = try container.decode(String.self, forKey: .name)
         // Read a simple top-level string.
         
+        // Gather simple type names from the nested `types` array.
         // Collect type names from the nested 'types' array.
         var decodedTypes: [String] = []
         // Step into the 'types' array (unkeyed container).
         var typesContainer = try container.nestedUnkeyedContainer(forKey: .types)
         
+        // For each array element: go element["type"]["name"].
         // Loop until we've read all type entries.
         while !typesContainer.isAtEnd {
             // Each item in 'types' is a dictionary -> use a keyed container (TypeDictionaryKeys) to access its keys (like 'type').
@@ -135,13 +118,24 @@ struct FetchedPokemon: Decodable {
             decodedTypes.append(type)
         }
         // Done collecting: set the property.
+        
+        // If a dual-type starts with "normal", move it to the end so the other type shows first.
+        if decodedTypes.count == 2 && decodedTypes[0] == "normal" {
+    // apple has a build in to swap 2 values in an array
+            decodedTypes.swapAt(0, 1)
+//            let tempType = decodedTypes[0]
+//            decodedTypes[0] = decodedTypes[1]
+//            decodedTypes[1] = tempType
+        }
         self.types = decodedTypes
         
+        // Collect base stats in API order (hp, attack, defense, sp. atk, sp. def, speed).
         // Collect base_stat numbers in order.
         var decodedStats: [Int16] = []
         // Step into the 'stats' array.
         var statsContainer = try container.nestedUnkeyedContainer(forKey: .stats)
         
+        // Each stats element: read only `base_stat`.
         // Read each stat item.
         while !statsContainer.isAtEnd {
             let statsDictionaryContainer = try statsContainer.nestedContainer(keyedBy: CodingKeys.StatDictionaryKeys.self)
@@ -151,6 +145,7 @@ struct FetchedPokemon: Decodable {
             // Keep them in the same order as the API.
             decodedStats.append(stat)
         }
+        // Assign stats by their known order in the API array.
         // API guarantees the order: hp, attack, defense, special-attack, special-defense, speed.
         self.hp = decodedStats[0]
         self.attack = decodedStats[1]
@@ -159,6 +154,7 @@ struct FetchedPokemon: Decodable {
         self.specialDefense = decodedStats[4]
         self.speed = decodedStats[5]
         
+        // Step into `sprites` and read frontDefault/frontShiny URLs.
         // Step into the 'sprites' object.
         let spriteContainer = try container.nestedContainer(keyedBy: CodingKeys.SpriteKeys.self, forKey: .sprites)
         
@@ -168,3 +164,30 @@ struct FetchedPokemon: Decodable {
     }
 }
 
+/*
+Junior notes (extras):
+
+- What are the stats?
+  - hp: how much damage a Pokémon can take before fainting.
+  - attack/defense: physical damage dealt/taken.
+  - specialAttack/specialDefense: special (non-physical) damage dealt/taken.
+  - speed: who acts first in turn order.
+
+- Where do these stats come from?
+  - The API returns a `stats` array. We extract `base_stat` values in order and assign them to hp/attack/etc.
+
+- Why nested containers?
+  - JSON has arrays and objects inside objects. We create nested containers to step into them and use the right keys for each level.
+
+- What is `max` often used for in stats views?
+  - In UI, `max(current, lowerBound)` ensures a minimum bar size (e.g., at least 1pt so tiny values are still visible).
+  - `min(current, upperBound)` or combining with `max` caps bar length to avoid overflowing the layout.
+  - These helpers don’t change the actual stat numbers—only how they are drawn.
+
+- Best practices (quick):
+  - Keep this struct Decodable-only; map to Core Data entities after decoding.
+  - Validate array counts before indexing (e.g., stats count >= 6) to avoid crashes.
+  - Prefer `swapAt` for swapping elements (as shown) and avoid manual temp variables.
+  - Be explicit about key paths with nested containers; comment the JSON path you expect.
+  - If localization/casing changes, compare case-insensitively when matching strings.
+*/

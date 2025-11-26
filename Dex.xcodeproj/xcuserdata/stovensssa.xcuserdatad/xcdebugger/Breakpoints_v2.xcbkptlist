@@ -14,10 +14,44 @@
             filePath = "Dex/Model/FetchedPokemon.swift"
             startingColumnNumber = "9223372036854775807"
             endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "28"
-            endingLineNumber = "28"
+            startingLineNumber = "22"
+            endingLineNumber = "22"
             landmarkName = "FetchedPokemon"
             landmarkType = "14">
+         </BreakpointContent>
+      </BreakpointProxy>
+      <BreakpointProxy
+         BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
+         <BreakpointContent
+            uuid = "A80F92FE-2A52-48AC-A111-C60F4E599699"
+            shouldBeEnabled = "No"
+            condition = "decodedTypes.count == 2"
+            ignoreCount = "0"
+            continueAfterRunningActions = "No"
+            filePath = "Dex/Model/FetchedPokemon.swift"
+            startingColumnNumber = "9223372036854775807"
+            endingColumnNumber = "9223372036854775807"
+            startingLineNumber = "122"
+            endingLineNumber = "122"
+            landmarkName = "init(from:)"
+            landmarkType = "7">
+         </BreakpointContent>
+      </BreakpointProxy>
+      <BreakpointProxy
+         BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
+         <BreakpointContent
+            uuid = "F73CB939-1DD3-4D33-80FB-14FFFEB819A8"
+            shouldBeEnabled = "No"
+            condition = "type == &quot;water&quot;"
+            ignoreCount = "0"
+            continueAfterRunningActions = "No"
+            filePath = "Dex/Model/FetchedPokemon.swift"
+            startingColumnNumber = "9223372036854775807"
+            endingColumnNumber = "9223372036854775807"
+            startingLineNumber = "118"
+            endingLineNumber = "118"
+            landmarkName = "init(from:)"
+            landmarkType = "7">
          </BreakpointContent>
       </BreakpointProxy>
    </Breakpoints>
