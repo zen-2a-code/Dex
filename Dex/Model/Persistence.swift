@@ -83,8 +83,8 @@ struct PersistenceController {
         newPokemon.specialAttack = 65
         newPokemon.specialDefense = 65
         newPokemon.speed = 45
-        newPokemon.sprite = URL(string: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/1.png") // URL is commonly optional.
-        newPokemon.shiny = URL(string: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/shiny/1.png") // Optional is common here too.
+        newPokemon.spriteURL = URL(string: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/1.png") // URL is commonly optional.
+        newPokemon.shinyURL = URL(string: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/shiny/1.png") // Optional is common here too.
 
         // Save the context. This writes pending changes in viewContext to the in‑memory store.
         do {
@@ -103,15 +103,15 @@ struct PersistenceController {
     let container: NSPersistentContainer
 
     // Init builds the container. If inMemory is true, it uses a null URL so nothing is stored on disk.
-    init(inMemory: Bool = false)
+    init(inMemory: Bool = false) // inMemory = true -> RAM-only store (great for previews/tests)
     
     {
         // Name must match the .xcdatamodeld file ("Dex").
-        container = NSPersistentContainer(name: "Dex")
+        container = NSPersistentContainer(name: "Dex") // Must match the .xcdatamodeld file name
 
         if inMemory {
             // Redirect the first store to /dev/null to keep data only in RAM (great for previews/tests).
-            container.persistentStoreDescriptions.first!.url = URL(fileURLWithPath: "/dev/null")
+            container.persistentStoreDescriptions.first!.url = URL(fileURLWithPath: "/dev/null") // Blackhole path: keeps data in memory (no disk writes)
         }
 
         // Load (or create) the actual persistent stores (e.g., SQLite file).
@@ -122,10 +122,10 @@ struct PersistenceController {
         }
         
         // Merge policy: if the same object changed in memory and on disk, prefer the store's values for conflicting properties.
-        container.viewContext.mergePolicy = NSMergePolicy.mergeByPropertyStoreTrump
+        container.viewContext.mergePolicy = NSMergePolicy.mergeByPropertyStoreTrump // On conflict, keep the store's values for properties
 
         // When background contexts save, automatically merge their changes into viewContext so the UI updates.
-        container.viewContext.automaticallyMergesChangesFromParent = true
+        container.viewContext.automaticallyMergesChangesFromParent = true // UI context auto-absorbs background saves so lists refresh
     }
 }
 
@@ -146,3 +146,21 @@ struct PersistenceController {
    • Before calling save(), make sure all required (non-optional) attributes/relationships have valid values.
    • If a required value is missing, save() will throw a validation error.
 */
+
+/*
+ Junior cheatsheet (quick recap):
+ - About Swift's max(_:_):
+   • Returns the larger of two values. Example: max(attack, specialAttack) picks the higher attack stat.
+   • Not used in this file; you'll see it used to compare or clamp numbers elsewhere.
+ - Pokémon stat meanings:
+   • hp: how much damage a Pokémon can take before fainting.
+   • attack/defense: physical damage dealt/taken.
+   • specialAttack/specialDefense: special (non-physical) damage dealt/taken.
+   • speed: who acts first in battle turns.
+ - Core Data best practices (short):
+   • Use a background context for heavy writes; keep UI work on viewContext (main queue).
+   • Set a merge policy that matches your data flow (property trump vs. object trump) and add unique constraints (e.g., Pokemon.id) to prevent duplicates.
+   • Handle errors with do/catch and log meaningfully; avoid try!/force unwraps in production.
+   • For previews/tests, use in-memory stores to keep disk clean.
+   • Enable automaticallyMergesChangesFromParent so UI updates when background contexts save.
+ */

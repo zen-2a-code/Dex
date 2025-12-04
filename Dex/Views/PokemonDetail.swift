@@ -43,7 +43,7 @@ struct PokemonDetail: View {
                     .shadow(color: .black, radius: 6)
                 
                 // Sprite image: toggles between normal and shiny based on showShiny.
-                AsyncImage(url: showShiny ? pokemon.shiny :  pokemon.sprite) { image in
+                AsyncImage(url: showShiny ? pokemon.shinyURL :  pokemon.spriteURL) { image in
                     image
                     // Image modifiers (junior-friendly):
                     // - .interpolation(.none): keep pixel art crisp (no smoothing).

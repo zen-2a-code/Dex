@@ -26,9 +26,9 @@ struct FetchedPokemon: Decodable {
     let specialDefense: Int16
     let speed: Int16
     // We choose friendly property names in Swift
-    let sprite: URL
+    let spriteURL: URL // URL for the front-facing sprite image (thumbnail)
     // ...and map them to API keys using CodingKeys raw values (see SpriteKeys)
-    let shiny: URL
+    let shinyURL: URL
     
     // Key lists for each JSON level: top-level keys, nested type/stat/sprite keys.
     enum CodingKeys: CodingKey {
@@ -65,8 +65,8 @@ struct FetchedPokemon: Decodable {
         // - Example below: `sprite` (our nice name) maps to API key `frontDefault`.
         enum SpriteKeys: String, CodingKey {
             // Map our friendly property names to API sprite keys.
-            case sprite = "frontDefault"
-            case shiny = "frontShiny"
+            case spriteURL = "frontDefault" // maps to the sprites.frontDefault key
+            case shinyURL = "frontShiny"
             // These raw values must match the keys inside the 'sprites' JSON object.
         }
     }
@@ -159,8 +159,8 @@ struct FetchedPokemon: Decodable {
         let spriteContainer = try container.nestedContainer(keyedBy: CodingKeys.SpriteKeys.self, forKey: .sprites)
         
         // Use SpriteKeys to pick the right image URLs.
-        self.sprite = try spriteContainer.decode(URL.self, forKey: .sprite)
-        self.shiny = try spriteContainer.decode(URL.self, forKey: .shiny)
+        self.spriteURL = try spriteContainer.decode(URL.self, forKey: .spriteURL) // Decodes the 'frontDefault' image URL
+        self.shinyURL = try spriteContainer.decode(URL.self, forKey: .shinyURL)
     }
 }
 
@@ -180,6 +180,7 @@ Junior notes (extras):
   - JSON has arrays and objects inside objects. We create nested containers to step into them and use the right keys for each level.
 
 - What is `max` often used for in stats views?
+  - Swift's max(a, b) returns the larger value.
   - In UI, `max(current, lowerBound)` ensures a minimum bar size (e.g., at least 1pt so tiny values are still visible).
   - `min(current, upperBound)` or combining with `max` caps bar length to avoid overflowing the layout.
   - These helpers don’t change the actual stat numbers—only how they are drawn.
@@ -191,3 +192,4 @@ Junior notes (extras):
   - Be explicit about key paths with nested containers; comment the JSON path you expect.
   - If localization/casing changes, compare case-insensitively when matching strings.
 */
+

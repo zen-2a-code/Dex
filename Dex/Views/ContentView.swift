@@ -84,7 +84,7 @@ struct ContentView: View {
                             // Tap to navigate to the detail screen for this Pokémon.
                             NavigationLink (value: pokemon) {
                                 // Loads the sprite image asynchronously with a placeholder.
-                                AsyncImage(url: pokemon.sprite) {image in
+                                AsyncImage(url: pokemon.spriteURL) {image in
                                     image
                                         .resizable()
                                         .scaledToFit()
@@ -207,13 +207,32 @@ struct ContentView: View {
                     pokemon.specialAttack = fetchedPokemon.specialAttack
                     pokemon.specialDefense = fetchedPokemon.specialDefense
                     pokemon.speed = fetchedPokemon.speed
-                    pokemon.sprite = fetchedPokemon.sprite
-                    pokemon.shiny = fetchedPokemon.shiny
+                    pokemon.spriteURL = fetchedPokemon.spriteURL
+                    pokemon.shinyURL = fetchedPokemon.shinyURL
+                    
                     // Persist the new/updated object to disk.
                     try viewContext.save()
                 } catch {
                     print(error)
                 }
+                storeSprites()
+            }
+        }
+    }
+    
+    private func storeSprites() {
+        Task {
+            do {
+                for pokemon in allPokedexInDB {
+                    pokemon.sprite = try await URLSession.shared.data(from: pokemon.spriteURL!).0 // .data(from:) returns (Data, URLResponse); .0 picks the downloaded Data
+                    pokemon.shiny = try await URLSession.shared.data(from: pokemon.shinyURL!).0 // Same tuple: .0 is the Data bytes; .1 would be the URLResponse
+                    
+                    try viewContext.save()
+                    
+                    print("Sprites Stored \(pokemon.id): \(pokemon.name!.capitalized)")
+                }
+            } catch {
+                print(error)
             }
         }
     }
@@ -322,4 +341,26 @@ struct ContentView: View {
    - Provide a color fallback if a type asset is missing.
    - Consider debouncing search to reduce frequent refetches.
    - Use a background context for heavy writes to keep UI responsive.
+ */
+
+/*
+ Junior cheatsheet (quick recap):
+ - What does `.0` mean here?
+   - URLSession.shared.data(from:) returns a tuple: (Data, URLResponse).
+   - `.0` gets the first item (the downloaded bytes as Data). `.1` would be the URLResponse.
+ - Pokémon stat meanings:
+   - hp: how much damage a Pokémon can take before fainting.
+   - attack/defense: physical damage dealt/taken.
+   - specialAttack/specialDefense: special (non-physical) damage dealt/taken.
+   - speed: who acts first in battle turns.
+   - Note: There's no max() used here. If you see Swift's max(a, b) elsewhere, it just returns the larger value.
+ - Best practices (quick and practical):
+   - Avoid force unwraps (`!`) for optionals in production UI; provide safe defaults or guard.
+   - Batch inserts and save less often to improve performance.
+   - Do heavy writes on a background context; keep the main viewContext responsive.
+   - Add a unique constraint on `Pokemon.id` in the model to prevent duplicates.
+   - Debounce search text to reduce frequent refetches while typing.
+   - Consider caching images to avoid re-downloading.
+   - If using the main context, do saves on the main actor; mark long operations with `@MainActor` or hop to the main actor before saving.
+   - Use Core Data fetchBatchSize/indexes for large lists.
  */
