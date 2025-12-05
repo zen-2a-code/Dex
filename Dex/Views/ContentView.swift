@@ -5,6 +5,8 @@
 //  Created by Stoyan Hristov on 17.11.25.
 //
 
+// Junior-friendly: Main list screen (Pokédex). Reads from Core Data with @FetchRequest, lets you search, filter favorites, and navigate to details.
+
 // This view lists Pokémon from Core Data, lets you search/filter, and can fetch from the network.
 
 import SwiftUI
@@ -80,18 +82,27 @@ struct ContentView: View {
                 // Lazy list of Pokémon rows.
                 List {
                     Section {
+                        // `pokedex` is a FetchedResults<Pokemon> from @FetchRequest (live Core Data query that auto-updates on save()).
                         ForEach(pokedex) { pokemon in
                             // Tap to navigate to the detail screen for this Pokémon.
                             NavigationLink (value: pokemon) {
                                 // Loads the sprite image asynchronously with a placeholder.
-                                AsyncImage(url: pokemon.spriteURL) {image in
-                                    image
+                                
+                                if pokemon.sprite == nil {
+                                    AsyncImage(url: pokemon.spriteURL) {image in
+                                        image
+                                            .resizable()
+                                            .scaledToFit()
+                                    } placeholder: {
+                                        ProgressView()
+                                    }
+                                    .frame(width: 100, height: 100)
+                                } else {
+                                    pokemon.spriteImage
                                         .resizable()
                                         .scaledToFit()
-                                } placeholder: {
-                                    ProgressView()
+                                        .frame(width: 100, height: 100)
                                 }
-                                .frame(width: 100, height: 100)
                                 
                                 // Name and favorite star indicator.
                                 VStack(alignment: .leading) {
@@ -171,6 +182,7 @@ struct ContentView: View {
                         .tint(.yellow)
                     }
                 }
+                // Search and filters: we rebuild the NSFetchRequest predicate as you type/toggle, causing Core Data to refetch efficiently.
                 // Search bar that filters by name (case-insensitive).
                 .searchable(text: $searchText, placement: SearchFieldPlacement.navigationBarDrawer, prompt: "Find a Pokemon")
                 // Update the fetch request’s predicate whenever filters change.
@@ -325,42 +337,23 @@ struct ContentView: View {
    - attack/defense: physical damage dealt/taken.
    - specialAttack/specialDefense: special (non-physical) damage dealt/taken.
    - speed: who acts first in battle turns.
- - Where do these stats come from?
-   - They’re decoded from the API’s `stats` array in a fixed order, then saved to Core Data.
- - Why does the list update automatically?
-   - @FetchRequest observes Core Data changes; when you save(), SwiftUI refreshes the list.
-
- - Why might my breakpoint not hit in decoding?
-   - If data is loaded from Core Data cache, the JSON decoder path won’t run. Force a fresh fetch or clear cache.
-
- - Best practices (quick):
-   - Use Debug build to make breakpoints reliable; consider a symbolic breakpoint on `FetchedPokemon.init(from:)`.
-   - Avoid force unwraps in UI; provide safe defaults for `name` and `types`.
-   - Add a unique constraint on `Pokemon.id` to prevent duplicates.
-   - Batch inserts and save less often for performance.
-   - Provide a color fallback if a type asset is missing.
-   - Consider debouncing search to reduce frequent refetches.
-   - Use a background context for heavy writes to keep UI responsive.
- */
-
-/*
- Junior cheatsheet (quick recap):
- - What does `.0` mean here?
-   - URLSession.shared.data(from:) returns a tuple: (Data, URLResponse).
-   - `.0` gets the first item (the downloaded bytes as Data). `.1` would be the URLResponse.
- - Pokémon stat meanings:
-   - hp: how much damage a Pokémon can take before fainting.
-   - attack/defense: physical damage dealt/taken.
-   - specialAttack/specialDefense: special (non-physical) damage dealt/taken.
-   - speed: who acts first in battle turns.
    - Note: There's no max() used here. If you see Swift's max(a, b) elsewhere, it just returns the larger value.
  - Best practices (quick and practical):
    - Avoid force unwraps (`!`) for optionals in production UI; provide safe defaults or guard.
    - Batch inserts and save less often to improve performance.
    - Do heavy writes on a background context; keep the main viewContext responsive.
    - Add a unique constraint on `Pokemon.id` in the model to prevent duplicates.
-   - Debounce search text to reduce frequent refetches while typing.
+   - Debounce search to reduce frequent refetches while typing.
    - Consider caching images to avoid re-downloading.
    - If using the main context, do saves on the main actor; mark long operations with `@MainActor` or hop to the main actor before saving.
    - Use Core Data fetchBatchSize/indexes for large lists.
+ 
+ - Stats recap (junior):
+   • hp (durability), attack/defense (physical), specialAttack/specialDefense (special), speed (turn order).
+   • `max(by:)` (used in PokemonExt.highestStat) returns the Stat with the greatest `value` to size charts/limits.
+ - Best practices (short):
+   • Avoid force unwraps in UI; use defaults or guards.
+   • Add a unique constraint on Pokemon.id to prevent duplicates.
+   • Batch inserts and save less often; consider a background context for heavy writes.
+   • Debounce search to avoid frequent refetches while typing.
  */

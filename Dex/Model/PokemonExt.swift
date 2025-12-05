@@ -12,6 +12,25 @@ import SwiftUI
 // Extend the generated Core Data class with read-only helpers for the UI.
 
 extension Pokemon {
+    
+    // sprite is a Core Data attribute of type Data? that stores the raw bytes of the normal sprite image.
+    // In the if-let below, `let data = sprite` creates a local constant named `data` from that attribute.
+    var spriteImage: Image {
+        if let data = sprite, let image = UIImage(data: data) {
+            Image(uiImage: image)
+        } else {
+            Image(.bulbasaur)
+        }
+    }
+    
+    var shinyImage: Image {
+        if let data = shiny, let image = UIImage(data: data) {
+            Image(uiImage: image)
+        } else {
+            Image(.shinybulbasaur)
+        }
+    }
+    
     // Provides an ImageResource based on the Pokémon's primary type.
     // The `types` property is optional and force-unwrapped here for brevity.
     // ImageResource is derived from typed asset names corresponding to grouped types.
@@ -94,3 +113,14 @@ struct Stat: Identifiable {
 // - If the stats array could be empty, return an optional for highestStat.
 //
 //////////////////////////////////////////////////////////////////
+
+// Junior quick notes (concise)
+// - Where does `data` come from in `if let data = sprite`?
+//   • `sprite` is a Data? attribute on Pokemon saved in Core Data (bytes of the image). `data` is just a local constant bound to it.
+// - What do stats mean?
+//   • hp (durability), attack/defense (physical), specialAttack/specialDefense (special), speed (turn order).
+// - What does max(by:) do here?
+//   • Picks the Stat with the largest `value` so charts/layouts can size to the biggest number.
+// - Best practices
+//   • Prefer safe optionals (avoid force unwraps), validate assets, and consider enums for types.
+//   • If stats could be empty, make `highestStat` optional or provide a default.

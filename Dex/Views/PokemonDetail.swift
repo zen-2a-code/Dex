@@ -5,7 +5,7 @@
 //  Created by Stoyan Hristov on 21.11.25.
 //
 
-// Detail screen: shows one Pokémon with image(s), type chips, favorite toggle, and stats.
+// Junior-friendly: This screen reads one Pokemon (via @EnvironmentObject) and shows images, types, favorite, and stats.
 
 import SwiftUI
 import CoreData
@@ -43,26 +43,38 @@ struct PokemonDetail: View {
                     .shadow(color: .black, radius: 6)
                 
                 // Sprite image: toggles between normal and shiny based on showShiny.
-                AsyncImage(url: showShiny ? pokemon.shinyURL :  pokemon.spriteURL) { image in
-                    image
-                    // Image modifiers (junior-friendly):
-                    // - .interpolation(.none): keep pixel art crisp (no smoothing).
-                    // - .resizable(): allows the image to change size.
-                    // - .scaledToFit(): scales uniformly so it fits without cropping.
-                    // - .padding(.top, 50): adds space at the top so it doesn't touch the header.
-                    // - .shadow(color: .black, radius: 6): draws a soft shadow for depth.
+                if pokemon.sprite == nil || pokemon.shiny == nil {
+                    
+                    // spriteURL/shinyURL are URL? attributes saved on the Pokemon from the network fetch.
+                    AsyncImage(url: showShiny ? pokemon.shinyURL :  pokemon.spriteURL) { image in
+                        image
+                        // Image modifiers (junior-friendly):
+                        // - .interpolation(.none): keep pixel art crisp (no smoothing).
+                        // - .resizable(): allows the image to change size.
+                        // - .scaledToFit(): scales uniformly so it fits without cropping.
+                        // - .padding(.top, 50): adds space at the top so it doesn't touch the header.
+                        // - .shadow(color: .black, radius: 6): draws a soft shadow for depth.
+                            .interpolation(.none)
+                            .resizable()
+                            .scaledToFit()
+                            .padding(.top, 50)
+                            .shadow(color: .black ,radius: 6)
+                    } placeholder: {
+                        ProgressView()
+                    }
+                } else {
+                    (showShiny ? pokemon.shinyImage: pokemon.spriteImage)
                         .interpolation(.none)
                         .resizable()
                         .scaledToFit()
                         .padding(.top, 50)
                         .shadow(color: .black ,radius: 6)
-                } placeholder: {
-                    ProgressView()
                 }
             }
             
             // Types on the left; favorite toggle on the right.
             HStack {
+                // `types` is a [String]? attribute from Core Data (e.g., ["grass", "poison"]).
                 // Render each type as a colored capsule chip.
                 ForEach(pokemon.types!, id: \.self) {type in
                     Text(type.capitalized)
@@ -157,4 +169,14 @@ Junior notes (extras):
   - Keep heavy work off the main thread; use background contexts for large saves.
   - Prefer small images and caching for smooth scrolling.
   - For crisp pixel art, `.interpolation(.none)` is appropriate (as used here).
+*/
+
+/*
+Short recap (junior-friendly):
+- Stats meanings: hp (durability), attack/defense (physical), specialAttack/specialDefense (special), speed (turn order).
+- Why max/by: Used in PokemonExt.highestStat to find the largest stat so charts can set a sensible max axis.
+- Best practices:
+  • Avoid force unwraps in UI; use defaults like pokemon.name ?? "Unknown".
+  • Save Core Data changes on the main context for UI-bound work.
+  • Use AsyncImage for remote images, but prefer cached/local data when available for smooth scrolling.
 */
